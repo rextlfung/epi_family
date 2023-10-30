@@ -1,0 +1,9 @@
+# Ignore these
+*.asv
+*.entry
+*.fig
+*.seq
+*.tar
+*.txt
+*.mod
+*.mat
