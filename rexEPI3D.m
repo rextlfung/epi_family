@@ -87,25 +87,11 @@ gySpoil = trap4ge(gySpoil,crt,lims_spoiler);
 %% String together sequence
 seq = mr.Sequence(); % Create sequence object
 
-% % Dummy excitations to drive magnetization to steady state
-% segmentID = 1; % needed for seq2ge
-% for nframe = 1:Ndummy
-%    seq.addBlock(rf,mr.makeLabel('SET', 'LIN', segmentID),mr.makeDelay(90e-3));
-% end
-% 
-% % Acquire once with no PE for receiver gain tuning
-% segmentID = 2;
-% seq.addBlock(rf,mr.makeLabel('SET', 'LIN', segmentID));
-% for line = 1:Ncal
-%     seq.addBlock(adc); % Read a 90 x 90 plane of the center of k-space
-% end
-% %seq.addBlock(mr.makeDelay(87e-3)); % Let magnetization recover until actual data acquisition
-
-% Begin acquisition
-segmentID = 3;
+% String together scanloop
 for nframe = -Ndummy:Nframes
+    
     % Loop through each plane
-    for nz = 1:Nz 
+    for nz = 1:Nz
         if nframe < 0 % Dummy excitations
             segmentID = 1;
         elseif nframe == 0 % Tune receiver gain
@@ -114,20 +100,28 @@ for nframe = -Ndummy:Nframes
             segmentID = 3; 
         end
         
+        % RF spoling
+        % integer multiples of 117 degrees are usually indivisible by 360
+        % quadratic phase cycling
         if nframe > 0
-            % RF spoling
-            % integer multiples of 117 degrees are usually indivisible by 360
-            % quadratic phase cycling
             rf.phaseOffset = mod(117*(nz^2 + nz + 2)*pi/180, 2*pi);
             adc.phaseOffset = rf.phaseOffset;
         end
         
-        seq.addBlock(rf,mr.makeLabel('SET', 'LIN', segmentID)); % Volume excitation
+        % Volume excitation
+        seq.addBlock(rf,mr.makeLabel('SET', 'LIN', segmentID));
         
-        gzPreScaled = mr.scaleGrad(gzPre,nz - 1 - Nz/2); % Scale to proper z prephasing
+        % Scale to proper z prephasing gradient
+        gzPreScaled = mr.scaleGrad(gzPre,nz - 1 - Nz/2);
+        
+        % Prephasing gradients
         if nframe > 0
-            seq.addBlock(gxPre,gyPre,gzPreScaled); % PE in x, y, z
-        else
+            seq.addBlock(gxPre,gyPre,gzPreScaled);
+        elseif nframe == 0
+            seq.addBlock(gxPre,...
+                         mr.scaleGrad(gyPre,0),...
+                         mr.scaleGrad(gzPreScaled,0));
+        else %dummy
             seq.addBlock(mr.scaleGrad(gxPre,0),...
                          mr.scaleGrad(gyPre,0),...
                          mr.scaleGrad(gzPreScaled,0));
@@ -146,9 +140,9 @@ for nframe = -Ndummy:Nframes
                 gx.amplitude = -gx.amplitude; % Reverse polarity of read gradient
             end
         elseif nframe == 0
-            % Sample the center of k-space over and over again
+            % Sample the across kx with ky, kz = 0 over and over again
             for ny=1:Ny
-                seq.addBlock(mr.scaleGrad(gx,0),adc); % Read one line of k-space
+                seq.addBlock(gx,adc); % Read one line of k-space
 
                 % Phase blip to next line, except for last line
                 if ny < Ny 
@@ -186,8 +180,8 @@ for nframe = -Ndummy:Nframes
         end
     end
     
-%     % Calculate additional delay needed to have desired TR
-%     if nframe == 1
+%     % Calculate additional delay needed to have desired rf_TR
+%     if nframe == -Ndummy
 %         delayNeededForTR = TR - sum(seq.blockDurations);
 %         assert(delayNeededForTR >= 0);
 %     end
